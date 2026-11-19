@@ -36,11 +36,12 @@ func ClaimNext(ctx context.Context, db *sql.DB, workerID string, lease time.Dura
 	}
 
 	var claim Claim
+	var payload []byte
 	// Passing seconds as a number avoids interval-string parsing ambiguity.
 	const query = `SELECT job_id, job_type, payload::text, attempt_no, claim_token::text, lease_until
 FROM queue_claim($1, $2::double precision * INTERVAL '1 second')`
 	err := db.QueryRowContext(ctx, query, workerID, lease.Seconds()).Scan(
-		&claim.JobID, &claim.Type, &claim.Payload, &claim.Attempt, &claim.Token, &claim.LeaseUntil,
+		&claim.JobID, &claim.Type, &payload, &claim.Attempt, &claim.Token, &claim.LeaseUntil,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
@@ -48,5 +49,6 @@ FROM queue_claim($1, $2::double precision * INTERVAL '1 second')`
 	if err != nil {
 		return nil, fmt.Errorf("claim next job: %w", err)
 	}
+	claim.Payload = payload
 	return &claim, nil
 }
