@@ -11,10 +11,12 @@ Implemented:
 - PostgreSQL job and attempt schema with indexes and bounded attempts.
 - Transactional `queue_claim` function using `FOR UPDATE SKIP LOCKED` and expiring leases.
 - A new token per claim, with retained attempt history; an expired final attempt becomes a visible terminal failure.
+- Token- and owner-checked lease renewal and successful completion, with atomic job/attempt updates.
+- PostgreSQL lifecycle tests for expiry, stale tokens, concurrent completion, lock waits, and rollback.
 - Go `ClaimNext` wrapper (accepts a standard `database/sql` PostgreSQL connection), with stub tests.
 - PostgreSQL integration script covering two competing claimers, lease recovery, token rotation, and exhausted claims.
 
-Not yet implemented: authenticated lease completion/renewal, worker loop, crash demo, benchmarks. **Stale-token completion is not protected until those operations are implemented and tested.**
+Not yet implemented: worker loop, explicit failure/retry transitions, crash demo, benchmarks. Lease operations are Go worker primitives; no worker control endpoints or HTTP authentication are exposed.
 
 ## Run tests
 
@@ -38,7 +40,7 @@ The API registers the `lib/pq` PostgreSQL driver. The integration script tests t
 
 ## Delivery semantics
 
-The queue provides **at-least-once** execution, not exactly-once effects. A worker may finish an external operation just as its lease expires; another worker can reclaim the same job. Callers must use an idempotency key or unique business transaction identifier in their downstream database/API, and should commit the business side effect and its deduplication record atomically where possible. A lease token fences writes *to the queue* once completion methods are implemented; it cannot undo a payment or notification that already occurred.
+The queue provides **at-least-once** execution, not exactly-once effects. A worker may finish an external operation just as its lease expires; another worker can reclaim the same job. Callers must use an idempotency key or unique business transaction identifier in their downstream database/API, and should commit the business side effect and its deduplication record atomically where possible. A lease token fences renewal and successful completion writes *to the queue*; it cannot undo a payment or notification that already occurred.
 
 ## Run the API
 
@@ -46,7 +48,7 @@ Create an empty PostgreSQL 13+ database and apply the schema once:
 
 ```sh
 export DATABASE_URL='postgresql://localhost:5432/queue_demo?sslmode=disable'
-psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f db/schema.sql
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f db/schema.sql -f db/lease.sql
 go run ./cmd/queue-api
 ```
 
@@ -67,3 +69,23 @@ curl -i http://127.0.0.1:8080/jobs/1
 - SIGINT/SIGTERM allows up to five seconds for HTTP shutdown. Keep `DATABASE_URL` outside version control.
 
 Set `QUEUE_TEST_DSN` to a disposable PostgreSQL **URL** before `go test -v ./...` and `go test -race ./...` to run the HTTP/database integration test. It creates and drops its own schema; without that variable, the integration test is explicitly skipped. The claim shell fixture uses the same database variable.
+
+## Worker lease primitives
+
+Apply `db/lease.sql` after `db/schema.sql` for a new database. To upgrade a database that already has the job/attempt tables, apply only `db/lease.sql`; it uses `CREATE OR REPLACE FUNCTION` and can be reapplied. No table rewrite or data deletion is needed.
+
+Workers use the `internal/queue` functions with a PostgreSQL `*sql.DB`:
+
+```go
+claim, err := queue.ClaimNext(ctx, db, "worker-A", 30*time.Second)
+// Check err and claim != nil before using the token.
+until, err := queue.Renew(ctx, db, claim.JobID, claim.Token, "worker-A", 30*time.Second)
+// Check err; until is the database's authoritative lease deadline.
+err = queue.Complete(ctx, db, claim.JobID, claim.Token, "worker-A", json.RawMessage(`{"ok":true}`))
+```
+
+Renewal and completion require the same job ID, worker ID, and current token, with an unexpired lease. They lock the job first and then check the database clock, including time spent waiting for the lock. A heartbeat extends to at least database-now plus the requested duration; a short heartbeat never shortens an existing deadline. Both job and attempt lease deadlines update in one transaction.
+
+`Complete` atomically records the JSON result, marks the attempt and job succeeded, and clears the job's lease fields. JSON null is permitted. An unknown job, wrong owner/token, expired lease, or already completed attempt returns `queue.ErrLeaseLost`. Duplicate completion cannot overwrite a recorded result. Workers must stop committing queue results after losing their lease; retrying a successful completion whose response was lost also returns `ErrLeaseLost`, so inspect job status if needed.
+
+`QUEUE_TEST_DSN=... go test -count=1 -v ./...` runs the lifecycle tests as well as the submission tests. Each uses an isolated schema. The lifecycle checks include 16 simultaneous completions (one winner), reclaiming with a new token, rejected stale writes before and after reclaim, both operations blocked behind a row lock until expiry, and rollback of a partial renewal if its attempt is missing. Tests do not simulate external exactly-once side effects. Failure/backoff transitions are reserved for the worker milestone.
