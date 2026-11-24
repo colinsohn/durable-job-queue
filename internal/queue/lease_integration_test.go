@@ -50,7 +50,7 @@ func leaseTestDB(t *testing.T) *sql.DB {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { db.Close() })
-	for _, name := range []string{"schema.sql", "lease.sql"} {
+	for _, name := range []string{"schema.sql", "lease.sql", "failure.sql"} {
 		ddl, err := os.ReadFile(filepath.Join("..", "..", "db", name))
 		if err != nil {
 			t.Fatal(err)
@@ -183,7 +183,7 @@ func TestExpiredAndReclaimedLeasePostgres(t *testing.T) {
 }
 
 func TestExpiryWhileWaitingForLockPostgres(t *testing.T) {
-	for _, operation := range []string{"renew", "complete"} {
+	for _, operation := range []string{"renew", "complete", "fail"} {
 		t.Run(operation, func(t *testing.T) {
 			db := leaseTestDB(t)
 			c := claimForTest(t, db, "wait")
@@ -202,6 +202,9 @@ func TestExpiryWhileWaitingForLockPostgres(t *testing.T) {
 			go func() {
 				if operation == "renew" {
 					_, err := Renew(ctx, db, c.JobID, c.Token, "worker-A", time.Minute)
+					done <- err
+				} else if operation == "fail" {
+					_, err := Fail(ctx, db, c.JobID, c.Token, "worker-A", "failed after wait", time.Second, time.Minute, false)
 					done <- err
 				} else {
 					done <- Complete(ctx, db, c.JobID, c.Token, "worker-A", json.RawMessage(`null`))

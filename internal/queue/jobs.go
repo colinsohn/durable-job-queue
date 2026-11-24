@@ -25,17 +25,21 @@ type Job struct {
 	AttemptsStarted int             `json:"attempts_started"`
 	MaxAttempts     int             `json:"max_attempts"`
 	CreatedAt       time.Time       `json:"created_at"`
+	Result          json.RawMessage `json:"result"`
+	LastError       *string         `json:"last_error"`
+	FinishedAt      *time.Time      `json:"finished_at"`
 }
 
 type Store struct{ DB *sql.DB }
 
-const jobColumns = `id, job_type, payload::text, state, attempts_started, max_attempts, created_at`
+const jobColumns = `id, job_type, payload::text, state, attempts_started, max_attempts, created_at, result::text, last_error, finished_at`
 
 func scanJob(row *sql.Row) (Job, error) {
 	var j Job
-	var payload []byte
-	err := row.Scan(&j.ID, &j.Type, &payload, &j.State, &j.AttemptsStarted, &j.MaxAttempts, &j.CreatedAt)
+	var payload, result []byte
+	err := row.Scan(&j.ID, &j.Type, &payload, &j.State, &j.AttemptsStarted, &j.MaxAttempts, &j.CreatedAt, &result, &j.LastError, &j.FinishedAt)
 	j.Payload = payload
+	j.Result = result
 	return j, err
 }
 
