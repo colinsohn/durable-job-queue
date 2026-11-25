@@ -1,0 +1,73 @@
+{
+  "exhaustion": {
+    "attempts_started": 2,
+    "healthy_follow_up_succeeded": true,
+    "history": [
+      {
+        "attempt_no": 1,
+        "claimed_at": "2026-11-25T12:46:03.498907+09:00",
+        "finished_at": "2026-11-25T12:46:04.509434+09:00",
+        "lease_expires_at": "2026-11-25T12:46:04.498907+09:00",
+        "state": "lease_expired",
+        "worker_id": "exhaust-1"
+      },
+      {
+        "attempt_no": 2,
+        "claimed_at": "2026-11-25T12:46:04.509434+09:00",
+        "finished_at": "2026-11-25T12:46:05.523647+09:00",
+        "lease_expires_at": "2026-11-25T12:46:05.509434+09:00",
+        "state": "lease_expired",
+        "worker_id": "exhaust-2"
+      }
+    ],
+    "max_attempts": 2,
+    "no_third_attempt": true,
+    "stale_writes_rejected": true,
+    "state": "failed",
+    "terminal_error": "lease expired after final attempt",
+    "worker_crashes": 2
+  },
+  "format_version": 1,
+  "go_version": "go version go1.23.12 linux/amd64",
+  "heartbeat_milliseconds": 200,
+  "lease_seconds": 1,
+  "limitations": [
+    "Local disposable PostgreSQL and echo handler only; no external exactly-once effects.",
+    "No manual expiry updates were used; timestamps are measurements, not latency guarantees."
+  ],
+  "measured_at_utc": "2026-11-25T03:45:59.833456+00:00",
+  "operation_timeout_milliseconds": 200,
+  "postgresql_version": "16.2",
+  "recovery": {
+    "attempts_started": 2,
+    "history": [
+      {
+        "attempt_no": 1,
+        "claimed_at": "2026-11-25T12:45:59.854422+09:00",
+        "finished_at": "2026-11-25T12:46:01.477501+09:00",
+        "lease_expires_at": "2026-11-25T12:46:01.458807+09:00",
+        "state": "lease_expired",
+        "worker_id": "recover-A"
+      },
+      {
+        "attempt_no": 2,
+        "claimed_at": "2026-11-25T12:46:01.477501+09:00",
+        "finished_at": "2026-11-25T12:46:03.4813+09:00",
+        "lease_expires_at": "2026-11-25T12:46:04.479995+09:00",
+        "state": "succeeded",
+        "worker_id": "recover-B"
+      }
+    ],
+    "live_competitor_did_not_steal": true,
+    "reclaimed_not_before_expiry": true,
+    "stale_writes_checked_while_survivor_live": true,
+    "stale_writes_rejected": {
+      "complete": true,
+      "fail": true,
+      "renew": true
+    },
+    "state": "succeeded",
+    "token_rotated": true,
+    "victim_exit_signal": "SIGKILL"
+  }
+}

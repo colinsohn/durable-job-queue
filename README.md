@@ -1,11 +1,13 @@
 # Durable Job Queue
 
-A Go and PostgreSQL job queue for running background jobs when workers can fail or restart. The target demo runs two workers, kills one after it claims a job, and shows another recover it after its lease expires.
+A Go and PostgreSQL job queue for running background jobs when workers can fail or restart. A reproducible process-level regression runs competing workers, kills one after its claim, and verifies recovery after real lease expiry.
 
 ## Current status
 
 Implemented:
 - Capped retry policy with unit tests.
+- Actual SIGKILL recovery/exhaustion scenarios with a measured attempt-history report.
+- Exhausted-lease sweep regressions for 105 jobs, healthy-work progress, and stale-write rejection.
 - Runnable Go worker with heartbeats, bounded graceful shutdown, panic containment, and explicit retry/terminal failure handling.
 - Token-fenced failure transitions, database-authoritative attempt limits, and preserved attempt errors.
 - Black-box API/worker smoke test covering real SIGTERM drain and result lookup.
@@ -19,7 +21,7 @@ Implemented:
 - Go `ClaimNext` wrapper (accepts a standard `database/sql` PostgreSQL connection), with stub tests.
 - PostgreSQL integration script covering two competing claimers, lease recovery, token rotation, and exhausted claims.
 
-Not yet implemented: actual killed-process recovery demonstration, diagnostics/load benchmark, and polished demo. Lease operations are Go worker primitives; no worker control endpoints or HTTP authentication are exposed.
+Remaining work: diagnostics/load benchmark and the portfolio demo walkthrough. Lease operations are Go worker primitives; no worker control endpoints or HTTP authentication are exposed.
 
 ## Run tests
 
@@ -131,4 +133,28 @@ go vet ./...
 ./tests/worker_smoke.sh
 ```
 
-The Go integration tests use unique schemas. They verify heartbeat-spanning echo execution, retry-to-success, capped retry scheduling, exhausted/permanent failures, panic and invalid-result handling, shutdown drain with no next claim, bounded shutdown cancellation, lease-loss cancellation, failure rollback, and failure expiry while blocked behind a row lock. The smoke script builds and starts the actual API and worker binaries against its own schema, sends SIGTERM during a 1.2s echo with a 600ms lease, checks the returned JSON result, leaves a second job queued, and removes its temporary schema/binaries. It also reapplies the failure migration to check upgrade repeatability. These checks passed with Go 1.23.12/PostgreSQL 16.2; no throughput benchmark or actual killed-worker recovery result is claimed yet.
+The Go integration tests use unique schemas. They verify heartbeat-spanning echo execution, retry-to-success, capped retry scheduling, exhausted/permanent failures, panic and invalid-result handling, shutdown drain with no next claim, bounded shutdown cancellation, lease-loss cancellation, failure rollback, and failure expiry while blocked behind a row lock. The smoke script builds and starts the actual API and worker binaries against its own schema, sends SIGTERM during a 1.2s echo with a 600ms lease, checks the returned JSON result, leaves a second job queued, and removes its temporary schema/binaries. It also reapplies the failure migration to check upgrade repeatability. These checks passed with Go 1.23.12/PostgreSQL 16.2. The separate SIGKILL regression below now verifies killed-worker recovery; no throughput benchmark is claimed.
+
+## Reproduce an actual worker crash
+
+With the same disposable `QUEUE_TEST_DSN`, Go, `psql`, and Python 3:
+
+```sh
+python3 -B tests/crash_recovery.py
+# To retain a small measured report after every scenario passes:
+python3 -B tests/crash_recovery.py --report reports/crash_recovery.json
+```
+
+The harness creates a unique schema, applies the SQL, builds the real worker binary, and signals only child processes it starts. It uses a 1s lease, 200ms heartbeat, and 200ms database-operation timeout. **No lease clocks or database expiry timestamps are changed** in these process-level scenarios. Temporary workers, logs, binaries and the schema are cleaned up; connection URLs and live claim tokens are not printed or saved in the report. Go tests separately use synthetic expired rows to check database edge cases.
+
+| Scenario | Observed result |
+| --- | --- |
+| Competing worker while the first worker heartbeats | Attempt 1 remains with the live owner; a heartbeat extension is witnessed |
+| SIGKILL the first worker | The survivor waits for actual expiry, claims attempt 2 with a different token, and succeeds |
+| Old owner tries renewal, completion, and failure | All are rejected while the survivor's new lease is live |
+| SIGKILL both starts of a two-attempt job | Final sweep marks the job failed, preserves both expired attempts, and creates no attempt 3 |
+| Fresh job after terminal sweep | The same survivor completes it; an exhausted job does not poison the worker loop |
+
+The saved [measured report](reports/crash_recovery.json) records actual database attempt timestamps/states and configuration. Recovery asserts the second claim is at or after the expired attempt's last renewed deadline and the old attempt closes atomically with the new claim. Final exhaustion exposes `last_error = "lease expired after final attempt"`, clears lease fields, and sets `finished_at`. Timestamps are observations, not recovery-latency promises or throughput measurements. Echo has no external effect, so this does not establish exactly-once payments, notifications, or other downstream work.
+
+Additional Go regressions check that 105 exhausted leases are swept in bounded batches of 100 plus 5 without starving a ready job. Repeated claims and late renewal/completion/failure cannot resurrect a one-attempt exhausted job. Runtime queue logic required no changes for these checks; the milestone adds reproducible proof and regression coverage.
