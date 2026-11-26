@@ -102,18 +102,18 @@ type LatencySummary struct {
 }
 
 type WorkloadConfig struct {
-	Jobs                     int   `json:"jobs"`
-	DuplicateReplays         int   `json:"duplicate_replays"`
-	TotalHTTPSubmissions     int   `json:"total_http_submissions"`
-	Producers                int   `json:"producers"`
-	Workers                  int   `json:"workers"`
-	RetryEveryNthJob         int   `json:"retry_every_nth_job"`
-	WorkDelayMilliseconds    int64 `json:"work_delay_milliseconds"`
-	LeaseMilliseconds        int64 `json:"lease_milliseconds"`
-	HeartbeatMilliseconds    int64 `json:"heartbeat_milliseconds"`
-	PollMilliseconds         int64 `json:"poll_milliseconds"`
-	RetryBaseMilliseconds    int64 `json:"retry_base_milliseconds"`
-	RetryCapMilliseconds     int64 `json:"retry_cap_milliseconds"`
+	Jobs                  int   `json:"jobs"`
+	DuplicateReplays      int   `json:"duplicate_replays"`
+	TotalHTTPSubmissions  int   `json:"total_http_submissions"`
+	Producers             int   `json:"producers"`
+	Workers               int   `json:"workers"`
+	RetryEveryNthJob      int   `json:"retry_every_nth_job"`
+	WorkDelayMilliseconds int64 `json:"work_delay_milliseconds"`
+	LeaseMilliseconds     int64 `json:"lease_milliseconds"`
+	HeartbeatMilliseconds int64 `json:"heartbeat_milliseconds"`
+	PollMilliseconds      int64 `json:"poll_milliseconds"`
+	RetryBaseMilliseconds int64 `json:"retry_base_milliseconds"`
+	RetryCapMilliseconds  int64 `json:"retry_cap_milliseconds"`
 }
 
 type ThroughputSummary struct {
@@ -125,14 +125,14 @@ type ThroughputSummary struct {
 }
 
 type IntegritySummary struct {
-	Created201Responses        int  `json:"created_201_responses"`
-	Replayed200Responses       int  `json:"replayed_200_responses"`
-	ExpectedRetriedJobs        int  `json:"expected_retried_jobs"`
-	ObservedRetriedJobs        int  `json:"observed_retried_jobs"`
-	ZeroDuplicateAttemptNumbers bool `json:"zero_duplicate_attempt_numbers"`
+	Created201Responses           int  `json:"created_201_responses"`
+	Replayed200Responses          int  `json:"replayed_200_responses"`
+	ExpectedRetriedJobs           int  `json:"expected_retried_jobs"`
+	ObservedRetriedJobs           int  `json:"observed_retried_jobs"`
+	ZeroDuplicateAttemptNumbers   bool `json:"zero_duplicate_attempt_numbers"`
 	ZeroMultipleSucceededAttempts bool `json:"zero_multiple_succeeded_attempts"`
-	ZeroLostOrFailedJobs       bool `json:"zero_lost_or_failed_jobs"`
-	HTTPDiagnosticsMatchedStore bool `json:"http_diagnostics_matched_store"`
+	ZeroLostOrFailedJobs          bool `json:"zero_lost_or_failed_jobs"`
+	HTTPDiagnosticsMatchedStore   bool `json:"http_diagnostics_matched_store"`
 }
 
 type Report struct {
@@ -146,12 +146,12 @@ type Report struct {
 	Workload          WorkloadConfig    `json:"workload"`
 	Throughput        ThroughputSummary `json:"throughput"`
 	Latencies         struct {
-		HTTPSubmissionMS       LatencySummary `json:"http_submission_ms"`
-		FirstClaimQueueWaitMS  LatencySummary `json:"first_claim_queue_wait_ms"`
-		AttemptExecutionMS     LatencySummary `json:"attempt_execution_ms"`
-		EndToEndAllJobsMS      LatencySummary `json:"end_to_end_all_jobs_ms"`
+		HTTPSubmissionMS        LatencySummary `json:"http_submission_ms"`
+		FirstClaimQueueWaitMS   LatencySummary `json:"first_claim_queue_wait_ms"`
+		AttemptExecutionMS      LatencySummary `json:"attempt_execution_ms"`
+		EndToEndAllJobsMS       LatencySummary `json:"end_to_end_all_jobs_ms"`
 		EndToEndSingleAttemptMS LatencySummary `json:"end_to_end_single_attempt_ms"`
-		EndToEndRetriedJobsMS  LatencySummary `json:"end_to_end_retried_jobs_ms"`
+		EndToEndRetriedJobsMS   LatencySummary `json:"end_to_end_retried_jobs_ms"`
 	} `json:"latencies"`
 	FinalDiagnostics queue.Diagnostics `json:"final_diagnostics"`
 	Integrity        IntegritySummary  `json:"integrity"`
