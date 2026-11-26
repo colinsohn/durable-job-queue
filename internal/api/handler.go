@@ -16,6 +16,7 @@ import (
 type JobStore interface {
 	Submit(context.Context, string, queue.Submission) (queue.Job, bool, error)
 	Get(context.Context, int64) (queue.Job, error)
+	Diagnostics(context.Context) (queue.Diagnostics, error)
 }
 
 func Handler(store JobStore) http.Handler {
@@ -76,6 +77,15 @@ func Handler(store JobStore) http.Handler {
 			return
 		}
 		respond(w, 200, j)
+	})
+	mux.HandleFunc("GET /diagnostics", func(w http.ResponseWriter, r *http.Request) {
+		d, err := store.Diagnostics(r.Context())
+		if err != nil {
+			log.Printf("diagnostics: %v", err)
+			fail(w, 500, "database request failed")
+			return
+		}
+		respond(w, 200, d)
 	})
 	return mux
 }

@@ -129,8 +129,23 @@ func TestSubmissionPostgres(t *testing.T) {
 	if res = request("POST", "/jobs", "distinct", body); res.Code != 201 {
 		t.Fatalf("distinct key: %d", res.Code)
 	}
+	res = request("GET", "/diagnostics", "", "")
+	if res.Code != 200 {
+		t.Fatalf("diagnostics: %d %s", res.Code, res.Body)
+	}
+	var diag queue.Diagnostics
+	if err = json.Unmarshal(res.Body.Bytes(), &diag); err != nil {
+		t.Fatal(err)
+	}
+	if diag.TotalJobs != 2 || diag.QueuedReady != 1 || diag.LeasedLive != 1 ||
+		diag.TotalAttempts != 1 || diag.RunningAttempts != 1 || diag.OldestReadyAgeSeconds == nil {
+		t.Fatalf("unexpected diagnostics response: %+v", diag)
+	}
 	db.Close()
 	if res = request("GET", "/jobs/1", "", ""); res.Code != 500 || strings.Contains(res.Body.String(), "sql:") {
 		t.Fatalf("DB failure response: %s", res.Body)
+	}
+	if res = request("GET", "/diagnostics", "", ""); res.Code != 500 || strings.Contains(res.Body.String(), "sql:") {
+		t.Fatalf("diagnostics DB failure response: %s", res.Body)
 	}
 }

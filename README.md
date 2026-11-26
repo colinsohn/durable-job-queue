@@ -20,8 +20,10 @@ Implemented:
 - PostgreSQL lifecycle tests for expiry, stale tokens, concurrent completion, lock waits, and rollback.
 - Go `ClaimNext` wrapper (accepts a standard `database/sql` PostgreSQL connection), with stub tests.
 - PostgreSQL integration script covering two competing claimers, lease recovery, token rotation, and exhausted claims.
+- Single-snapshot queue diagnostics (`Store.Diagnostics` and `GET /diagnostics`) reporting ready, delayed, live-leased, expired-reclaimable, expired-exhausted, succeeded, failed, and retried counts plus oldest ready backlog age without exposing tokens.
+- Repeatable load test and benchmark (`cmd/queue-bench` and `internal/bench`) with measured submission/completion throughput, latency percentiles, and invariant verification saved in [`reports/load_benchmark.json`](reports/load_benchmark.json).
 
-Remaining work: diagnostics/load benchmark and the portfolio demo walkthrough. Lease operations are Go worker primitives; no worker control endpoints or HTTP authentication are exposed.
+Remaining work: the portfolio CLI demo walkthrough. Lease operations are Go worker primitives; no worker control endpoints or HTTP authentication are exposed.
 
 ## Run tests
 
@@ -64,12 +66,14 @@ curl -i http://127.0.0.1:8080/jobs \
   -H 'Content-Type: application/json' -H 'Idempotency-Key: example-1' \
   -d '{"type":"echo","payload":{"message":"hello"}}'
 curl -i http://127.0.0.1:8080/jobs/1
+curl -i http://127.0.0.1:8080/diagnostics
 ```
 
 - New submissions return `201` with a `Location` header. Equivalent replays return `200` with the original job's current state. A changed request under the same key returns `409`.
 - JSONB equality ignores object key order, whitespace, and equivalent JSON numbers; array order matters. Keys stay reserved for the life of a job. There is no deletion endpoint.
 - A nonblank key up to 200 bytes and a JSON body with `type` and `payload` are required. JSON null is a valid payload. Unknown fields, unsupported types, extra JSON values, and bodies over 1 MiB return `400`.
 - Status lookup returns the job, attempt count, JSON result, last failure reason, and terminal timestamp; missing IDs return `404`, invalid IDs return `400`. Tokens and owner details are not exposed.
+- `GET /diagnostics` evaluates `queue_jobs` and `queue_attempts` against a single PostgreSQL `clock_timestamp()` snapshot and reports disjoint job buckets (`queued_ready`, `queued_delayed`, `leased_live`, `leased_expired_reclaimable`, `leased_expired_exhausted`, `succeeded`, `failed`), `retried_jobs`, `oldest_ready_age_seconds` (null when no job is immediately claimable), and attempt state totals (`running_attempts`, `succeeded_attempts`, `failed_attempts`, `expired_attempts`).
 - Submissions use schema defaults: three attempts, zero priority, immediate eligibility. Scheduling options are not yet exposed.
 - SIGINT/SIGTERM allows up to five seconds for HTTP shutdown. Keep `DATABASE_URL` outside version control.
 
@@ -158,3 +162,32 @@ The harness creates a unique schema, applies the SQL, builds the real worker bin
 The saved [measured report](reports/crash_recovery.json) records actual database attempt timestamps/states and configuration. Recovery asserts the second claim is at or after the expired attempt's last renewed deadline and the old attempt closes atomically with the new claim. Final exhaustion exposes `last_error = "lease expired after final attempt"`, clears lease fields, and sets `finished_at`. Timestamps are observations, not recovery-latency promises or throughput measurements. Echo has no external effect, so this does not establish exactly-once payments, notifications, or other downstream work.
 
 Additional Go regressions check that 105 exhausted leases are swept in bounded batches of 100 plus 5 without starving a ready job. Repeated claims and late renewal/completion/failure cannot resurrect a one-attempt exhausted job. Runtime queue logic required no changes for these checks; the milestone adds reproducible proof and regression coverage.
+
+## Diagnostics and repeatable load benchmark
+
+With a disposable `QUEUE_TEST_DSN` (or `DATABASE_URL`):
+
+```sh
+go run ./cmd/queue-bench --report reports/load_benchmark.json
+```
+
+The benchmark creates an isolated disposable PostgreSQL schema, applies `db/schema.sql`, `db/lease.sql`, and `db/failure.sql`, starts the HTTP submission/diagnostics API and competing `worker.Worker` loops, and drops the schema on exit. By default (`--jobs 400 --duplicates 80 --producers 8 --workers 4 --retry-every 10 --poll 5ms --retry-base 5ms --retry-cap 20ms`), 8 concurrent HTTP producers submit 400 unique jobs interleaved with 80 duplicate idempotent replays (480 total `POST /jobs` requests) while 4 workers compete to claim and execute them. Every 10th job deterministically fails its first attempt and succeeds on attempt 2 (40 retried jobs, 440 total attempts).
+
+### Measured local benchmark (`reports/load_benchmark.json`)
+
+Measured on `darwin/arm64` (8 logical CPUs) with Go 1.27.4 and PostgreSQL 18.3 over local loopback TCP:
+
+| Metric | Count | p50 (ms) | p95 (ms) | p99 (ms) | Max (ms) | Mean (ms) | Throughput |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| HTTP `POST /jobs` submission (400 new + 80 replays) | 480 | 0.853 | 2.175 | 12.227 | 17.802 | 1.216 | 6,426.78 req/s |
+| First-claim queue wait (`claimed_at - created_at`, attempt 1) | 400 | 32.047 | 43.710 | 44.709 | 45.158 | 27.691 | — |
+| Attempt execution (`finished_at - claimed_at`) | 440 | 0.483 | 1.324 | 2.857 | 5.440 | 0.655 | 3,328.25 attempts/s |
+| End-to-end completion, all jobs (`finished_at - created_at`) | 400 | 33.204 | 58.082 | 71.030 | 73.532 | 30.980 | 3,025.69 jobs/s |
+| End-to-end completion, single-attempt jobs | 360 | 32.465 | 43.945 | 45.013 | 45.467 | 28.312 | — |
+| End-to-end completion, retried jobs (2 attempts) | 40 | 58.082 | 71.726 | 73.532 | 73.532 | 54.996 | — |
+
+Post-run integrity checks verified:
+- Exactly 400 HTTP `201 Created` responses and 80 HTTP `200 OK` idempotent replay responses under concurrent contention.
+- All 400 jobs reached `succeeded` with zero terminal failures, 40 retried jobs, 440 total attempts (`400` succeeded, `40` failed, `0` expired, `0` running), and zero duplicate `(job_id, attempt_no)` or multi-succeeded attempts.
+- `GET /diagnostics` over HTTP matched `Store.Diagnostics` identically (`oldest_ready_age_seconds = null` once drained).
+- These numbers measure local PostgreSQL transaction and worker coordination overhead with an in-memory handler, not external network/disk side effects.
