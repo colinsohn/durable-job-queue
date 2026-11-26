@@ -83,3 +83,10 @@ func (s Store) Get(ctx context.Context, id int64) (Job, error) {
 	}
 	return j, err
 }
+
+func (s Store) Ping(ctx context.Context) error {
+	if s.DB == nil {
+		return errors.New("database connection is nil")
+	}
+	return s.DB.PingContext(ctx)
+}

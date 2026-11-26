@@ -141,11 +141,17 @@ func TestSubmissionPostgres(t *testing.T) {
 		diag.TotalAttempts != 1 || diag.RunningAttempts != 1 || diag.OldestReadyAgeSeconds == nil {
 		t.Fatalf("unexpected diagnostics response: %+v", diag)
 	}
+	if res = request("GET", "/healthz", "", ""); res.Code != 200 || !strings.Contains(res.Body.String(), `"status":"ok"`) {
+		t.Fatalf("healthz response: %d %s", res.Code, res.Body)
+	}
 	db.Close()
 	if res = request("GET", "/jobs/1", "", ""); res.Code != 500 || strings.Contains(res.Body.String(), "sql:") {
 		t.Fatalf("DB failure response: %s", res.Body)
 	}
 	if res = request("GET", "/diagnostics", "", ""); res.Code != 500 || strings.Contains(res.Body.String(), "sql:") {
 		t.Fatalf("diagnostics DB failure response: %s", res.Body)
+	}
+	if res = request("GET", "/healthz", "", ""); res.Code != 503 || strings.Contains(res.Body.String(), "sql:") {
+		t.Fatalf("healthz DB failure response: %d %s", res.Code, res.Body)
 	}
 }

@@ -22,6 +22,7 @@ Implemented:
 - PostgreSQL integration script covering two competing claimers, lease recovery, token rotation, and exhausted claims.
 - Single-snapshot queue diagnostics (`Store.Diagnostics` and `GET /diagnostics`) reporting ready, delayed, live-leased, expired-reclaimable, expired-exhausted, succeeded, failed, and retried counts plus oldest ready backlog age without exposing tokens.
 - Repeatable load test and benchmark (`cmd/queue-bench` and `internal/bench`) with measured submission/completion throughput, latency percentiles, and invariant verification saved in [`reports/load_benchmark.json`](reports/load_benchmark.json).
+- Database-backed `GET /healthz` endpoint, multi-stage distroless [`Dockerfile`](Dockerfile), GitHub Actions [`ci.yml`](.github/workflows/ci.yml) and [`deploy.yml`](.github/workflows/deploy.yml), and scale-to-zero Google Cloud Run deployment guide with Workload Identity Federation and cost review in [`DEPLOYMENT.md`](DEPLOYMENT.md).
 
 Remaining work: the portfolio CLI demo walkthrough. Lease operations are Go worker primitives; no worker control endpoints or HTTP authentication are exposed.
 
@@ -67,6 +68,7 @@ curl -i http://127.0.0.1:8080/jobs \
   -d '{"type":"echo","payload":{"message":"hello"}}'
 curl -i http://127.0.0.1:8080/jobs/1
 curl -i http://127.0.0.1:8080/diagnostics
+curl -i http://127.0.0.1:8080/healthz
 ```
 
 - New submissions return `201` with a `Location` header. Equivalent replays return `200` with the original job's current state. A changed request under the same key returns `409`.
@@ -74,6 +76,8 @@ curl -i http://127.0.0.1:8080/diagnostics
 - A nonblank key up to 200 bytes and a JSON body with `type` and `payload` are required. JSON null is a valid payload. Unknown fields, unsupported types, extra JSON values, and bodies over 1 MiB return `400`.
 - Status lookup returns the job, attempt count, JSON result, last failure reason, and terminal timestamp; missing IDs return `404`, invalid IDs return `400`. Tokens and owner details are not exposed.
 - `GET /diagnostics` evaluates `queue_jobs` and `queue_attempts` against a single PostgreSQL `clock_timestamp()` snapshot and reports disjoint job buckets (`queued_ready`, `queued_delayed`, `leased_live`, `leased_expired_reclaimable`, `leased_expired_exhausted`, `succeeded`, `failed`), `retried_jobs`, `oldest_ready_age_seconds` (null when no job is immediately claimable), and attempt state totals (`running_attempts`, `succeeded_attempts`, `failed_attempts`, `expired_attempts`).
+- `GET /healthz` checks PostgreSQL connectivity with a 2-second timeout and returns `200 OK` (`{"status":"ok"}`) or `503 Service Unavailable` (`{"error":"database unavailable"}`).
+- When `LISTEN_ADDR` is unset and `PORT` is set (such as on Google Cloud Run), the API listens on `:$PORT`; see [`DEPLOYMENT.md`](DEPLOYMENT.md) for scale-to-zero Cloud Run deployment via Workload Identity Federation.
 - Submissions use schema defaults: three attempts, zero priority, immediate eligibility. Scheduling options are not yet exposed.
 - SIGINT/SIGTERM allows up to five seconds for HTTP shutdown. Keep `DATABASE_URL` outside version control.
 

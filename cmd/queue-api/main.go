@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -34,7 +35,11 @@ func main() {
 	}
 	addr := os.Getenv("LISTEN_ADDR")
 	if addr == "" {
-		addr = "127.0.0.1:8080"
+		if port := strings.TrimSpace(os.Getenv("PORT")); port != "" {
+			addr = ":" + port
+		} else {
+			addr = "127.0.0.1:8080"
+		}
 	}
 	srv := &http.Server{Addr: addr, Handler: api.Handler(queue.Store{DB: db}), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 15 * time.Second, IdleTimeout: time.Minute}
 	stopped, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

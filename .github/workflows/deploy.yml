@@ -1,0 +1,70 @@
+name: Deploy to Cloud Run
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  deploy:
+    name: Deploy queue-api to Google Cloud Run (Scale-to-Zero via WIF)
+    runs-on: ubuntu-latest
+    if: >-
+      (github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success') &&
+      vars.ENABLE_CLOUD_RUN_DEPLOY == 'true'
+
+    env:
+      PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+      REGION: ${{ vars.GCP_REGION }}
+      ARTIFACT_REPO: ${{ vars.GCP_ARTIFACT_REPO }}
+      SERVICE_NAME: ${{ vars.GCP_CLOUD_RUN_SERVICE }}
+      IMAGE_URI: ${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${{ vars.GCP_ARTIFACT_REPO }}/queue-api:${{ github.sha }}
+
+    steps:
+      - name: Checkout verified commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Authenticate to Google Cloud via Workload Identity Federation
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+
+      - name: Set up Cloud SDK and Docker credential helper
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ vars.GCP_PROJECT_ID }}
+
+      - name: Build and push production container image
+        run: |
+          gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet
+          docker build -t "${IMAGE_URI}" .
+          docker push "${IMAGE_URI}"
+
+      - name: Deploy scale-to-zero service to Cloud Run
+        run: |
+          gcloud run deploy "${SERVICE_NAME}" \
+            --project="${PROJECT_ID}" \
+            --region="${REGION}" \
+            --image="${IMAGE_URI}" \
+            --platform=managed \
+            --service-account="${{ vars.GCP_RUNTIME_SERVICE_ACCOUNT }}" \
+            --min-instances=0 \
+            --max-instances=2 \
+            --cpu=1 \
+            --memory=256Mi \
+            --concurrency=80 \
+            --cpu-throttling \
+            --port=8080 \
+            --set-secrets="DATABASE_URL=QUEUE_DATABASE_URL:latest" \
+            --startup-probe="httpGet.path=/healthz,httpGet.port=8080,periodSeconds=5,failureThreshold=6" \
+            --liveness-probe="httpGet.path=/healthz,httpGet.port=8080,periodSeconds=30,failureThreshold=3" \
+            --no-allow-unauthenticated

@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"durable-job-queue/internal/queue"
 )
@@ -17,6 +18,7 @@ type JobStore interface {
 	Submit(context.Context, string, queue.Submission) (queue.Job, bool, error)
 	Get(context.Context, int64) (queue.Job, error)
 	Diagnostics(context.Context) (queue.Diagnostics, error)
+	Ping(context.Context) error
 }
 
 func Handler(store JobStore) http.Handler {
@@ -86,6 +88,16 @@ func Handler(store JobStore) http.Handler {
 			return
 		}
 		respond(w, 200, d)
+	})
+	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
+		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+		defer cancel()
+		if err := store.Ping(ctx); err != nil {
+			log.Printf("healthz: %v", err)
+			fail(w, http.StatusServiceUnavailable, "database unavailable")
+			return
+		}
+		respond(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
 	return mux
 }

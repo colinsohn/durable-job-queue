@@ -1,0 +1,84 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Go, PostgreSQL & Container Verification
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: queue_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U postgres -d queue_test"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=10
+
+    env:
+      QUEUE_TEST_DSN: postgresql://postgres:postgres@127.0.0.1:5432/queue_test?sslmode=disable
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install PostgreSQL client tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client
+
+      - name: Check Go formatting and vet
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "Unformatted Go files:"
+            echo "$unformatted"
+            exit 1
+          fi
+          go vet ./...
+
+      - name: Build CLI binaries
+        run: |
+          go build ./cmd/queue-api
+          go build ./cmd/queue-worker
+          go build ./cmd/queue-bench
+          rm -f queue-api queue-worker queue-bench
+
+      - name: Run unit and PostgreSQL integration tests
+        run: |
+          go test -count=1 -v ./...
+          go test -count=1 -race ./...
+
+      - name: Run SQL and black-box process integration suites
+        run: |
+          ./tests/claim_integration.sh
+          ./tests/worker_smoke.sh
+          python3 -B tests/crash_recovery.py
+
+      - name: Run repeatable load benchmark verification
+        run: |
+          go run ./cmd/queue-bench --jobs 80 --duplicates 16 --producers 4 --workers 2 >/dev/null
+
+      - name: Verify production Dockerfile build
+        run: |
+          docker build -t durable-job-queue:ci-verify .
