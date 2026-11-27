@@ -1,0 +1,118 @@
+{
+  "format_version": 1,
+  "measured_at_utc": "2026-11-27T08:44:37.935132Z",
+  "go_version": "go1.27.4",
+  "postgresql_version": "18.3 (Homebrew)",
+  "before_crash": {
+    "phase": "before_crash_live_lease",
+    "captured_at": "2026-11-27T08:44:37.021706Z",
+    "job": {
+      "id": 1,
+      "idempotency_key": "demo-crash-recovery-1",
+      "type": "echo",
+      "state": "leased",
+      "attempts_started": 1,
+      "max_attempts": 3,
+      "lease_owner": "worker-A",
+      "lease_token_set": true,
+      "lease_expires_at": "2026-11-27T08:44:37.817946Z",
+      "created_at": "2026-11-27T08:44:36.707863Z"
+    },
+    "attempts": [
+      {
+        "attempt_no": 1,
+        "worker_id": "worker-A",
+        "state": "running",
+        "claimed_at": "2026-11-27T08:44:36.86376Z",
+        "lease_expires_at": "2026-11-27T08:44:37.817946Z"
+      }
+    ],
+    "diagnostics": {
+      "checked_at": "2026-11-27T00:44:37.021538-08:00",
+      "total_jobs": 1,
+      "queued_ready": 0,
+      "queued_delayed": 0,
+      "leased_live": 1,
+      "leased_expired_reclaimable": 0,
+      "leased_expired_exhausted": 0,
+      "succeeded": 0,
+      "failed": 0,
+      "retried_jobs": 0,
+      "oldest_ready_age_seconds": null,
+      "total_attempts": 1,
+      "running_attempts": 1,
+      "succeeded_attempts": 0,
+      "failed_attempts": 0,
+      "expired_attempts": 0
+    }
+  },
+  "after_recovery": {
+    "phase": "after_sigkill_recovery",
+    "captured_at": "2026-11-27T08:44:37.93513Z",
+    "job": {
+      "id": 1,
+      "idempotency_key": "demo-crash-recovery-1",
+      "type": "echo",
+      "state": "succeeded",
+      "attempts_started": 2,
+      "max_attempts": 3,
+      "lease_owner": null,
+      "lease_token_set": false,
+      "lease_expires_at": null,
+      "result": {
+        "demo": "worker_crash_recovery",
+        "step": "sigkill_failover"
+      },
+      "created_at": "2026-11-27T08:44:36.707863Z",
+      "finished_at": "2026-11-27T08:44:37.915126Z"
+    },
+    "attempts": [
+      {
+        "attempt_no": 1,
+        "worker_id": "worker-A",
+        "state": "lease_expired",
+        "claimed_at": "2026-11-27T08:44:36.86376Z",
+        "lease_expires_at": "2026-11-27T08:44:37.817946Z",
+        "finished_at": "2026-11-27T08:44:37.827522Z",
+        "last_error": "worker lease expired"
+      },
+      {
+        "attempt_no": 2,
+        "worker_id": "worker-B",
+        "state": "succeeded",
+        "claimed_at": "2026-11-27T08:44:37.827522Z",
+        "lease_expires_at": "2026-11-27T08:44:38.627522Z",
+        "finished_at": "2026-11-27T08:44:37.915126Z"
+      }
+    ],
+    "diagnostics": {
+      "checked_at": "2026-11-27T00:44:37.934954-08:00",
+      "total_jobs": 1,
+      "queued_ready": 0,
+      "queued_delayed": 0,
+      "leased_live": 0,
+      "leased_expired_reclaimable": 0,
+      "leased_expired_exhausted": 0,
+      "succeeded": 1,
+      "failed": 0,
+      "retried_jobs": 1,
+      "oldest_ready_age_seconds": null,
+      "total_attempts": 2,
+      "running_attempts": 0,
+      "succeeded_attempts": 1,
+      "failed_attempts": 0,
+      "expired_attempts": 1
+    }
+  },
+  "verification": {
+    "heartbeat_extension_witnessed": true,
+    "live_competitor_did_not_steal": true,
+    "victim_killed_with_sigkill": true,
+    "token_rotated_on_reclaim": true,
+    "reclaimed_not_before_expiry": true,
+    "atomic_expiry_transition": true,
+    "stale_renew_rejected": true,
+    "stale_complete_rejected": true,
+    "stale_fail_rejected": true
+  }
+}

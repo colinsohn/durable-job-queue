@@ -22,9 +22,10 @@ Implemented:
 - PostgreSQL integration script covering two competing claimers, lease recovery, token rotation, and exhausted claims.
 - Single-snapshot queue diagnostics (`Store.Diagnostics` and `GET /diagnostics`) reporting ready, delayed, live-leased, expired-reclaimable, expired-exhausted, succeeded, failed, and retried counts plus oldest ready backlog age without exposing tokens.
 - Repeatable load test and benchmark (`cmd/queue-bench` and `internal/bench`) with measured submission/completion throughput, latency percentiles, and invariant verification saved in [`reports/load_benchmark.json`](reports/load_benchmark.json).
+- Local runnable CLI failure & recovery demo (`cmd/queue-demo` and `internal/demo`) that submits a job over HTTP, starts two competing `queue-worker` OS processes (`worker-A` and `worker-B`), witnesses a live heartbeat extension, sends `SIGKILL` to `worker-A`, prints the before-crash and after-recovery job/attempt history and diagnostics, verifies stale-token fencing, and writes [`reports/failure_recovery_demo.json`](reports/failure_recovery_demo.json).
 - Database-backed `GET /healthz` endpoint, multi-stage distroless [`Dockerfile`](Dockerfile), GitHub Actions [`ci.yml`](.github/workflows/ci.yml) and [`deploy.yml`](.github/workflows/deploy.yml), and scale-to-zero Google Cloud Run deployment guide with Workload Identity Federation and cost review in [`DEPLOYMENT.md`](DEPLOYMENT.md).
 
-Remaining work: the portfolio CLI demo walkthrough. Lease operations are Go worker primitives; no worker control endpoints or HTTP authentication are exposed.
+Lease operations are Go worker primitives; no worker control endpoints or HTTP authentication are exposed.
 
 ## Run tests
 
@@ -195,3 +196,13 @@ Post-run integrity checks verified:
 - All 400 jobs reached `succeeded` with zero terminal failures, 40 retried jobs, 440 total attempts (`400` succeeded, `40` failed, `0` expired, `0` running), and zero duplicate `(job_id, attempt_no)` or multi-succeeded attempts.
 - `GET /diagnostics` over HTTP matched `Store.Diagnostics` identically (`oldest_ready_age_seconds = null` once drained).
 - These numbers measure local PostgreSQL transaction and worker coordination overhead with an in-memory handler, not external network/disk side effects.
+
+## Local CLI Failure & Recovery Demo (`cmd/queue-demo`)
+
+With a disposable `QUEUE_TEST_DSN` (or `DATABASE_URL`):
+
+```sh
+go run ./cmd/queue-demo --report reports/failure_recovery_demo.json
+```
+
+`cmd/queue-demo` creates an isolated schema, applies `db/schema.sql`, `db/lease.sql`, and `db/failure.sql`, builds the `queue-worker` binary, submits a job over HTTP (`POST /jobs` with `Idempotency-Key: demo-crash-recovery-1`), starts two competing worker processes (`worker-A` and `worker-B`), witnesses a live heartbeat extension by `worker-A`, sends `SIGKILL` to `worker-A`, waits for real lease expiry and `worker-B`'s reclaim/completion, verifies that stale renewal/completion/failure writes using `worker-A`'s old token return `queue.ErrLeaseLost`, and prints the before-and-after job and attempt history (saved in [`reports/failure_recovery_demo.json`](reports/failure_recovery_demo.json) without exposing DSNs or raw claim tokens).

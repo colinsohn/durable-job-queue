@@ -62,7 +62,8 @@ jobs:
           go build ./cmd/queue-api
           go build ./cmd/queue-worker
           go build ./cmd/queue-bench
-          rm -f queue-api queue-worker queue-bench
+          go build ./cmd/queue-demo
+          rm -f queue-api queue-worker queue-bench queue-demo
 
       - name: Run unit and PostgreSQL integration tests
         run: |
@@ -74,6 +75,7 @@ jobs:
           ./tests/claim_integration.sh
           ./tests/worker_smoke.sh
           python3 -B tests/crash_recovery.py
+          go run ./cmd/queue-demo >/dev/null
 
       - name: Run repeatable load benchmark verification
         run: |
